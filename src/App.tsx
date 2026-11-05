@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { MonthlySelector } from './components/MonthlySelector';
 import { SummaryCards } from './components/SummaryCards';
@@ -12,16 +12,21 @@ import { TransactionList } from './components/TransactionList';
 import { TransactionModal } from './components/TransactionModal';
 import { CategoryManagerModal } from './components/CategoryManagerModal';
 import { BackupModal } from './components/BackupModal';
+import { DeviceSyncModal } from './components/DeviceSyncModal';
 import { Category, Transaction } from './types/finance';
 import {
   loadCategoriesFromStorage,
   loadTransactionsFromStorage,
   saveCategoriesToStorage,
   saveTransactionsToStorage,
+  getActiveBookId,
+  setActiveBookId,
+  fetchLedgerFromServer,
+  pushLedgerToServer,
 } from './utils/storage';
 import { computeMonthlyStats, filterTransactionsByMonth } from './utils/calculator';
 import { generateMonthlyReportPdf } from './utils/pdfGenerator';
-import { CheckCircle2, Shield, Heart } from 'lucide-react';
+import { CheckCircle2, Shield, Heart, Radio, Smartphone } from 'lucide-react';
 import { MONTH_NAMES_ID } from './utils/formatters';
 
 export default function App() {
@@ -30,6 +35,7 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'categories' | 'backup'>('dashboard');
 
+  const [currentBookId, setCurrentBookId] = useState<string>(getActiveBookId());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null);
@@ -39,7 +45,12 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  // Sync state
+  const lastModifiedRef = useRef<number>(0);
+  const isPollingRef = useRef<boolean>(true);
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -51,17 +62,79 @@ export default function App() {
     }, 3200);
   }, []);
 
-  // Initial load from localStorage
-  const reloadData = useCallback(() => {
-    const loadedCategories = loadCategoriesFromStorage();
-    const loadedTransactions = loadTransactionsFromStorage();
-    setCategories(loadedCategories);
-    setTransactions(loadedTransactions);
+  // Initial load: fast local cache first, then fetch latest from cloud server
+  const reloadData = useCallback(async (bookId: string) => {
+    // 1. Read from local storage cache for instant UI
+    const cachedCats = loadCategoriesFromStorage();
+    const cachedTx = loadTransactionsFromStorage();
+    if (cachedCats.length > 0) setCategories(cachedCats);
+    if (cachedTx.length > 0) setTransactions(cachedTx);
+
+    // 2. Fetch fresh data from sync server
+    try {
+      const serverData = await fetchLedgerFromServer(bookId);
+      if (serverData && serverData.success) {
+        setCategories(serverData.categories);
+        setTransactions(serverData.transactions);
+        lastModifiedRef.current = serverData.lastModified;
+      }
+    } catch (err) {
+      console.warn('Sync server initial fetch failed, using local cache:', err);
+    }
   }, []);
 
   useEffect(() => {
-    reloadData();
-  }, [reloadData]);
+    reloadData(currentBookId);
+  }, [currentBookId, reloadData]);
+
+  // Realtime long-polling listener: whenever ANY device modifies this book, update instantly!
+  useEffect(() => {
+    isPollingRef.current = true;
+    let abortController = new AbortController();
+
+    async function poll() {
+      while (isPollingRef.current) {
+        try {
+          const res = await fetch(
+            `/api/ledger/${encodeURIComponent(currentBookId)}/poll?since=${lastModifiedRef.current}`,
+            { signal: abortController.signal }
+          );
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.modified && isPollingRef.current) {
+              setTransactions(data.transactions);
+              setCategories(data.categories);
+              lastModifiedRef.current = data.lastModified;
+              saveTransactionsToStorage(data.transactions);
+              saveCategoriesToStorage(data.categories);
+              showToast('Data otomatis tersinkronisasi dari perangkat lain!');
+            }
+          }
+        } catch (err: any) {
+          if (err.name === 'AbortError') break;
+          // Wait 2 seconds before retrying on network hiccup
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+    }
+
+    poll();
+
+    // Also poll immediately when tab regains focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        reloadData(currentBookId);
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      isPollingRef.current = false;
+      abortController.abort();
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentBookId, reloadData, showToast]);
 
   // Compute monthly statistics
   const currentMonthStats = useMemo(() => {
@@ -105,6 +178,9 @@ export default function App() {
     setTransactions(updated);
     saveTransactionsToStorage(updated);
     setEditingTransaction(null);
+
+    // Push to server to notify other devices immediately
+    pushLedgerToServer(currentBookId, updated, categories);
   };
 
   // Handle Delete Transaction
@@ -113,6 +189,9 @@ export default function App() {
     setTransactions(updated);
     saveTransactionsToStorage(updated);
     showToast('Catatan transaksi telah dihapus.');
+
+    // Push to server
+    pushLedgerToServer(currentBookId, updated, categories);
   };
 
   // Handle Category Add
@@ -125,6 +204,8 @@ export default function App() {
     setCategories(updated);
     saveCategoriesToStorage(updated);
     showToast(`Kategori "${cat.name}" berhasil ditambahkan.`);
+
+    pushLedgerToServer(currentBookId, transactions, updated);
   };
 
   // Handle Category Update
@@ -133,7 +214,6 @@ export default function App() {
     setCategories(updated);
     saveCategoriesToStorage(updated);
 
-    // Also update any transactions with this category name
     const updatedTx = transactions.map((t) => {
       if (t.categoryId === updatedCat.id) {
         return { ...t, categoryName: updatedCat.name };
@@ -144,6 +224,7 @@ export default function App() {
     saveTransactionsToStorage(updatedTx);
 
     showToast(`Kategori "${updatedCat.name}" diperbarui.`);
+    pushLedgerToServer(currentBookId, updatedTx, updated);
   };
 
   // Handle Category Delete
@@ -161,6 +242,15 @@ export default function App() {
       setSelectedCategoryFilter(null);
     }
     showToast('Kategori telah dihapus.');
+    pushLedgerToServer(currentBookId, transactions, updated);
+  };
+
+  // Handle Book ID Change
+  const handleBookIdChange = (newBookId: string) => {
+    setCurrentBookId(newBookId);
+    setActiveBookId(newBookId);
+    reloadData(newBookId);
+    showToast(`Buku Kas dialihkan ke: ${newBookId}`);
   };
 
   // Handle PDF Export
@@ -192,7 +282,27 @@ export default function App() {
           setEditingTransaction(null);
           setIsTxModalOpen(true);
         }}
+        onOpenSyncModal={() => setIsSyncModalOpen(true)}
       />
+
+      {/* Cloud Sync Information Bar */}
+      <div className="bg-emerald-50 border-b border-emerald-100 py-1.5 px-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-emerald-900">
+            <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+            <span>
+              Sinkronisasi Cloud Realtime Aktif: <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-200">{currentBookId}</strong>
+            </span>
+          </div>
+          <button
+            onClick={() => setIsSyncModalOpen(true)}
+            className="text-emerald-700 hover:text-emerald-950 font-semibold underline flex items-center gap-1 cursor-pointer"
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>Buka / Sambungkan di HP Anda</span>
+          </button>
+        </div>
+      </div>
 
       {/* Floating Toast Notification */}
       {toastMessage && (
@@ -381,21 +491,29 @@ export default function App() {
                     Penyimpanan & Cadangan Mandiri
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Data Anda tersimpan di browser secara terus-menerus tanpa perlu login
+                    Data Anda tersinkronisasi otomatis di cloud tanpa perlu password atau akun
                   </p>
                 </div>
               </div>
 
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6">
-                Aplikasi ini tidak membutuhkan registrasi atau login akun sehingga privasi keuangan Anda terjaga 100%. Data tersimpan di memori peramban lokal perangkat. Agar data dapat dipindahkan ke ponsel atau komputer lain, gunakan tombol <strong>Cadangkan Data</strong> di bawah ini untuk mengunduh file JSON, lalu pilih <strong>Pulihkan Data</strong> di perangkat tujuan.
+                Aplikasi ini menggunakan sistem <strong>Sinkronisasi Cloud Realtime</strong> berbasis Kode Buku Kas (<strong>{currentBookId}</strong>). Saat Anda menambah atau mengubah transaksi di HP, layar laptop akan otomatis berubah dalam 1 detik. Anda juga dapat mengunduh berkas cadangan offline berformat JSON kapan saja.
               </p>
 
-              <button
-                onClick={() => setIsBackupModalOpen(true)}
-                className="w-full sm:w-auto px-6 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer shadow-xs"
-              >
-                Buka Panel Cadangan & Pulihkan Data
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setIsSyncModalOpen(true)}
+                  className="px-5 py-2.5 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors cursor-pointer shadow-xs"
+                >
+                  Buka Tautan Akses untuk HP
+                </button>
+                <button
+                  onClick={() => setIsBackupModalOpen(true)}
+                  className="px-5 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Ekspor / Impor File JSON
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -407,7 +525,7 @@ export default function App() {
           <div className="flex items-center gap-1.5">
             <span className="font-semibold text-slate-700">BukuKas Rupiah</span>
             <span>·</span>
-            <span>Laporan Keuangan Harian & Rekap Bulanan</span>
+            <span>Laporan Keuangan Harian & Rekap Bulanan Realtime</span>
           </div>
           <div className="flex items-center gap-1 text-slate-400">
             <span>Privat & Aman</span>
@@ -447,7 +565,14 @@ export default function App() {
       <BackupModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
-        onDataChanged={reloadData}
+        onDataChanged={() => reloadData(currentBookId)}
+      />
+
+      <DeviceSyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        currentBookId={currentBookId}
+        onBookIdChanged={handleBookIdChange}
       />
     </div>
   );

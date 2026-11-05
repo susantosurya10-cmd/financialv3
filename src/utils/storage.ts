@@ -3,29 +3,30 @@ import { getTodayDateString } from './formatters';
 
 const STORAGE_KEY_TRANSACTIONS = 'bukukas_rupiah_transactions_v1';
 const STORAGE_KEY_CATEGORIES = 'bukukas_rupiah_categories_v1';
+const STORAGE_KEY_BOOK_ID = 'bukukas_active_book_id';
 
 export const DEFAULT_EXPENSE_CATEGORIES: Category[] = [
-  { id: 'exp-1', name: 'Makan & Minum', type: 'expense', color: '#f97316', icon: 'Utensils' },
-  { id: 'exp-2', name: 'Belanja Harian & Sayur', type: 'expense', color: '#10b981', icon: 'ShoppingCart' },
-  { id: 'exp-3', name: 'Listrik, Air & WiFi', type: 'expense', color: '#06b6d4', icon: 'Zap' },
-  { id: 'exp-4', name: 'Transportasi & Bensin', type: 'expense', color: '#3b82f6', icon: 'Car' },
-  { id: 'exp-5', name: 'Kesehatan & Obat', type: 'expense', color: '#ef4444', icon: 'HeartPulse' },
-  { id: 'exp-6', name: 'Pendidikan & Kursus', type: 'expense', color: '#8b5cf6', icon: 'GraduationCap' },
-  { id: 'exp-7', name: 'Hiburan & Rekreasi', type: 'expense', color: '#ec4899', icon: 'Gamepad2' },
-  { id: 'exp-8', name: 'Cicilan & Tagihan', type: 'expense', color: '#64748b', icon: 'FileText' },
-  { id: 'exp-9', name: 'Zakat, Infaq & Sosial', type: 'expense', color: '#14b8a6', icon: 'HandHeart' },
-  { id: 'exp-10', name: 'Kebutuhan Rumah Tangga', type: 'expense', color: '#d97706', icon: 'Home' },
-  { id: 'exp-11', name: 'Pengeluaran Lainnya', type: 'expense', color: '#94a3b8', icon: 'MoreHorizontal' },
+  { id: 'exp-1', name: 'Makan & Minum', type: 'expense', color: '#f97316' },
+  { id: 'exp-2', name: 'Belanja Harian & Sayur', type: 'expense', color: '#10b981' },
+  { id: 'exp-3', name: 'Listrik, Air & WiFi', type: 'expense', color: '#06b6d4' },
+  { id: 'exp-4', name: 'Transportasi & Bensin', type: 'expense', color: '#3b82f6' },
+  { id: 'exp-5', name: 'Kesehatan & Obat', type: 'expense', color: '#ef4444' },
+  { id: 'exp-6', name: 'Pendidikan & Kursus', type: 'expense', color: '#8b5cf6' },
+  { id: 'exp-7', name: 'Hiburan & Rekreasi', type: 'expense', color: '#ec4899' },
+  { id: 'exp-8', name: 'Cicilan & Tagihan', type: 'expense', color: '#64748b' },
+  { id: 'exp-9', name: 'Zakat, Infaq & Sosial', type: 'expense', color: '#14b8a6' },
+  { id: 'exp-10', name: 'Kebutuhan Rumah Tangga', type: 'expense', color: '#d97706' },
+  { id: 'exp-11', name: 'Pengeluaran Lainnya', type: 'expense', color: '#94a3b8' },
 ];
 
 export const DEFAULT_INCOME_CATEGORIES: Category[] = [
-  { id: 'inc-1', name: 'Gaji Bulanan', type: 'income', color: '#059669', icon: 'Briefcase' },
-  { id: 'inc-2', name: 'Bonus & THR', type: 'income', color: '#10b981', icon: 'Award' },
-  { id: 'inc-3', name: 'Bisnis & Jualan', type: 'income', color: '#0284c7', icon: 'Store' },
-  { id: 'inc-4', name: 'Freelance & Sampingan', type: 'income', color: '#7c3aed', icon: 'Laptop' },
-  { id: 'inc-5', name: 'Investasi & Dividen', type: 'income', color: '#0d9488', icon: 'TrendingUp' },
-  { id: 'inc-6', name: 'Transfer & Hadiah', type: 'income', color: '#d946ef', icon: 'Gift' },
-  { id: 'inc-7', name: 'Pemasukan Lainnya', type: 'income', color: '#64748b', icon: 'MoreHorizontal' },
+  { id: 'inc-1', name: 'Gaji Bulanan', type: 'income', color: '#059669' },
+  { id: 'inc-2', name: 'Bonus & THR', type: 'income', color: '#10b981' },
+  { id: 'inc-3', name: 'Bisnis & Jualan', type: 'income', color: '#0284c7' },
+  { id: 'inc-4', name: 'Freelance & Sampingan', type: 'income', color: '#7c3aed' },
+  { id: 'inc-5', name: 'Investasi & Dividen', type: 'income', color: '#0d9488' },
+  { id: 'inc-6', name: 'Transfer & Hadiah', type: 'income', color: '#d946ef' },
+  { id: 'inc-7', name: 'Pemasukan Lainnya', type: 'income', color: '#64748b' },
 ];
 
 export const DEFAULT_CATEGORIES: Category[] = [
@@ -34,133 +35,46 @@ export const DEFAULT_CATEGORIES: Category[] = [
 ];
 
 /**
- * Generate initial demo transactions for current and previous month
- * to ensure rich visual statistics immediately on first load.
+ * Get or determine the active Book ID (shared across devices via URL or local memory)
  */
-function generateSeedTransactions(categories: Category[]): Transaction[] {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const ym = `${year}-${pad(month)}`;
-
-  const findCat = (name: string, type: 'income' | 'expense') => {
-    return categories.find((c) => c.name === name && c.type === type) || categories[0];
-  };
-
-  const gaji = findCat('Gaji Bulanan', 'income');
-  const freelance = findCat('Freelance & Sampingan', 'income');
-  const makan = findCat('Makan & Minum', 'expense');
-  const belanja = findCat('Belanja Harian & Sayur', 'expense');
-  const listrik = findCat('Listrik, Air & WiFi', 'expense');
-  const bensin = findCat('Transportasi & Bensin', 'expense');
-  const cicilan = findCat('Cicilan & Tagihan', 'expense');
-  const zakat = findCat('Zakat, Infaq & Sosial', 'expense');
-  const hiburan = findCat('Hiburan & Rekreasi', 'expense');
-
-  return [
-    {
-      id: 'tx-seed-1',
-      date: `${ym}-01`,
-      type: 'income',
-      categoryId: gaji.id,
-      categoryName: gaji.name,
-      amount: 8500000,
-      wallet: 'BCA',
-      notes: 'Gaji bulanan kantor utama',
-      createdAt: Date.now() - 500000,
-    },
-    {
-      id: 'tx-seed-2',
-      date: `${ym}-02`,
-      type: 'expense',
-      categoryId: listrik.id,
-      categoryName: listrik.name,
-      amount: 450000,
-      wallet: 'BCA',
-      notes: 'Token listrik PLN & langganan WiFi Indihome',
-      createdAt: Date.now() - 480000,
-    },
-    {
-      id: 'tx-seed-3',
-      date: `${ym}-03`,
-      type: 'expense',
-      categoryId: cicilan.id,
-      categoryName: cicilan.name,
-      amount: 1500000,
-      wallet: 'BCA',
-      notes: 'Cicilan bulanan rumah / KPR',
-      createdAt: Date.now() - 450000,
-    },
-    {
-      id: 'tx-seed-4',
-      date: `${ym}-03`,
-      type: 'expense',
-      categoryId: belanja.id,
-      categoryName: belanja.name,
-      amount: 320000,
-      wallet: 'Tunai / Kas Fisik',
-      notes: 'Belanja sayur segar & lauk pauk mingguan',
-      createdAt: Date.now() - 420000,
-    },
-    {
-      id: 'tx-seed-5',
-      date: `${ym}-04`,
-      type: 'income',
-      categoryId: freelance.id,
-      categoryName: freelance.name,
-      amount: 1250000,
-      wallet: 'Bank Mandiri',
-      notes: 'Pembayaran proyek desain logo & banner',
-      createdAt: Date.now() - 390000,
-    },
-    {
-      id: 'tx-seed-6',
-      date: `${ym}-04`,
-      type: 'expense',
-      categoryId: bensin.id,
-      categoryName: bensin.name,
-      amount: 150000,
-      wallet: 'GoPay',
-      notes: 'Isi BBM Pertamax motor & tol',
-      createdAt: Date.now() - 350000,
-    },
-    {
-      id: 'tx-seed-7',
-      date: `${ym}-05`,
-      type: 'expense',
-      categoryId: makan.id,
-      categoryName: makan.name,
-      amount: 85000,
-      wallet: 'Tunai / Kas Fisik',
-      notes: 'Makan siang warteg bersama keluarga',
-      createdAt: Date.now() - 300000,
-    },
-    {
-      id: 'tx-seed-8',
-      date: `${ym}-05`,
-      type: 'expense',
-      categoryId: zakat.id,
-      categoryName: zakat.name,
-      amount: 100000,
-      wallet: 'BSI',
-      notes: 'Sedekah Jumat berkah masjid sekitar',
-      createdAt: Date.now() - 250000,
-    },
-    {
-      id: 'tx-seed-9',
-      date: `${ym}-05`,
-      type: 'expense',
-      categoryId: hiburan.id,
-      categoryName: hiburan.name,
-      amount: 120000,
-      wallet: 'ShopeePay',
-      notes: 'Tiket nonton bioskop akhir pekan',
-      createdAt: Date.now() - 200000,
-    },
-  ];
+export function getActiveBookId(): string {
+  try {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlBook = urlParams.get('buku');
+      if (urlBook && urlBook.trim()) {
+        const clean = urlBook.trim().toLowerCase();
+        localStorage.setItem(STORAGE_KEY_BOOK_ID, clean);
+        return clean;
+      }
+      const saved = localStorage.getItem(STORAGE_KEY_BOOK_ID);
+      if (saved && saved.trim()) {
+        return saved.trim().toLowerCase();
+      }
+    }
+  } catch (err) {
+    console.error('Error getting bookId:', err);
+  }
+  return 'kas-utama';
 }
 
+export function setActiveBookId(bookId: string): void {
+  const clean = (bookId || 'kas-utama').trim().toLowerCase();
+  try {
+    localStorage.setItem(STORAGE_KEY_BOOK_ID, clean);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('buku', clean);
+      window.history.replaceState({}, '', url.toString());
+    }
+  } catch (err) {
+    console.error('Error saving active book id:', err);
+  }
+}
+
+/**
+ * Load categories from local storage cache
+ */
 export function loadCategoriesFromStorage(): Category[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CATEGORIES);
@@ -174,7 +88,7 @@ export function loadCategoriesFromStorage(): Category[] {
     }
     return DEFAULT_CATEGORIES;
   } catch (err) {
-    console.error('Error loading categories from storage:', err);
+    console.error('Error loading categories:', err);
     return DEFAULT_CATEGORIES;
   }
 }
@@ -183,26 +97,22 @@ export function saveCategoriesToStorage(categories: Category[]): void {
   try {
     localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(categories));
   } catch (err) {
-    console.error('Error saving categories to storage:', err);
+    console.error('Error saving categories:', err);
   }
 }
 
+/**
+ * Load transactions from local storage cache
+ */
 export function loadTransactionsFromStorage(): Transaction[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_TRANSACTIONS);
-    if (!raw) {
-      const cats = loadCategoriesFromStorage();
-      const seed = generateSeedTransactions(cats);
-      saveTransactionsToStorage(seed);
-      return seed;
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
+    if (Array.isArray(parsed)) return parsed;
     return [];
   } catch (err) {
-    console.error('Error loading transactions from storage:', err);
+    console.error('Error loading transactions:', err);
     return [];
   }
 }
@@ -211,13 +121,61 @@ export function saveTransactionsToStorage(transactions: Transaction[]): void {
   try {
     localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(transactions));
   } catch (err) {
-    console.error('Error saving transactions to storage:', err);
+    console.error('Error saving transactions:', err);
+  }
+}
+
+// -------------------------------------------------------------
+// Realtime Cloud Server Sync Engine
+// -------------------------------------------------------------
+
+export interface ServerSyncResponse {
+  success: boolean;
+  bookId: string;
+  lastModified: number;
+  transactions: Transaction[];
+  categories: Category[];
+}
+
+export async function fetchLedgerFromServer(bookId: string): Promise<ServerSyncResponse | null> {
+  try {
+    const res = await fetch(`/api/ledger/${encodeURIComponent(bookId)}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+    if (data && data.success) {
+      saveTransactionsToStorage(data.transactions);
+      saveCategoriesToStorage(data.categories);
+      return data;
+    }
+    return null;
+  } catch (err) {
+    console.warn('Could not reach sync server (offline or local fallback):', err);
+    return null;
+  }
+}
+
+export async function pushLedgerToServer(
+  bookId: string,
+  transactions: Transaction[],
+  categories: Category[]
+): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/ledger/${encodeURIComponent(bookId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions, categories }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Could not push ledger to sync server:', err);
+    return false;
   }
 }
 
 export interface BackupData {
   appName: string;
   version: string;
+  bookId: string;
   exportedAt: string;
   transactions: Transaction[];
   categories: Category[];
@@ -226,9 +184,11 @@ export interface BackupData {
 export function exportBackupData(): void {
   const transactions = loadTransactionsFromStorage();
   const categories = loadCategoriesFromStorage();
+  const bookId = getActiveBookId();
   const data: BackupData = {
     appName: 'BukuKas Rupiah',
     version: '1.0',
+    bookId,
     exportedAt: new Date().toISOString(),
     transactions,
     categories,
@@ -238,7 +198,7 @@ export function exportBackupData(): void {
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const filename = `bukukas-rupiah-backup-${getTodayDateString()}.json`;
+  const filename = `bukukas-${bookId}-${getTodayDateString()}.json`;
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
@@ -256,6 +216,9 @@ export function importBackupData(jsonString: string): { success: boolean; count:
 
     saveTransactionsToStorage(data.transactions);
     saveCategoriesToStorage(data.categories);
+    const bookId = getActiveBookId();
+    pushLedgerToServer(bookId, data.transactions, data.categories);
+
     return { success: true, count: data.transactions.length };
   } catch (err) {
     return { success: false, count: 0, error: 'Gagal membaca berkas JSON: ' + (err instanceof Error ? err.message : String(err)) };
@@ -263,9 +226,9 @@ export function importBackupData(jsonString: string): { success: boolean; count:
 }
 
 export function resetAllDataToDefault(): void {
-  localStorage.removeItem(STORAGE_KEY_TRANSACTIONS);
-  localStorage.removeItem(STORAGE_KEY_CATEGORIES);
   saveCategoriesToStorage(DEFAULT_CATEGORIES);
-  const seeds = generateSeedTransactions(DEFAULT_CATEGORIES);
-  saveTransactionsToStorage(seeds);
+  saveTransactionsToStorage([]);
+  const bookId = getActiveBookId();
+  pushLedgerToServer(bookId, [], DEFAULT_CATEGORIES);
 }
+
