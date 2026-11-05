@@ -1,0 +1,7 @@
+{
+  "name": "BukuKas Rupiah - Laporan Keuangan Harian & Bulanan",
+  "description": "Aplikasi pencatatan keuangan harian dengan rekapitulasi bulanan, analisis pengeluaran dan pemasukan, custom kategori, serta unduh laporan PDF resmi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

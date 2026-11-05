@@ -1,0 +1,6 @@
+{
+  "summary": "Rencana implementasi aplikasi web Laporan Keuangan Harian & Rekap Bulanan berbasis Rupiah tanpa login, dengan fitur custom kategori, visualisasi statistik bulanan, ekspor PDF formal, dan persistensi data lokal aman serta backup/restore JSON.",
+  "updatedAt": "2026-11-05T16:41:07.647780652Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
